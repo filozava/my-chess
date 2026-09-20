@@ -1,0 +1,1526 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Diagramma">
+<title>Diagramma</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.js"></script>
+<style>
+/* ---------- tokens ---------- */
+:root{
+  --bg:#EDEFF1; --panel:#FFFFFF; --panel-2:#F5F6F8; --line:#D3D8DE;
+  --text:#1A222B; --muted:#5F6E7C; --dim:#8C9AA6;
+  --sig:#B06E2B;            /* ottone: giudizio del motore */
+  --good:#4E8A4A; --ok:#7E9A3F; --inacc:#C08A1E; --mist:#C4661F; --blun:#B23A34;
+  --sel:#3C6E9F;
+  --shadow:0 1px 2px rgba(20,30,40,.10), 0 6px 18px rgba(20,30,40,.07);
+  --r:10px;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#141C24; --panel:#1C262F; --panel-2:#222E39; --line:#31404D;
+    --text:#DFE6EB; --muted:#93A5B3; --dim:#6E8090;
+    --sig:#D69A4A;
+    --good:#6FB268; --ok:#9CBD54; --inacc:#DCAE3C; --mist:#DE8442; --blun:#D75B53;
+    --sel:#5C9BD1;
+    --shadow:0 1px 2px rgba(0,0,0,.35), 0 8px 24px rgba(0,0,0,.30);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#141C24; --panel:#1C262F; --panel-2:#222E39; --line:#31404D;
+  --text:#DFE6EB; --muted:#93A5B3; --dim:#6E8090;
+  --sig:#D69A4A;
+  --good:#6FB268; --ok:#9CBD54; --inacc:#DCAE3C; --mist:#DE8442; --blun:#D75B53;
+  --sel:#5C9BD1;
+  --shadow:0 1px 2px rgba(0,0,0,.35), 0 8px 24px rgba(0,0,0,.30);
+}
+*,*::before,*::after{box-sizing:inherit}
+html{ -webkit-text-size-adjust:100%; scroll-padding-top:env(safe-area-inset-top,0px); }
+body{
+  margin:0; background:var(--bg); color:var(--text);
+  font-family:Archivo,"Helvetica Neue",Helvetica,Arial,sans-serif;
+  font-size:15px; line-height:1.45;
+  -webkit-font-smoothing:antialiased;
+}
+@media (prefers-reduced-motion:reduce){ *{animation:none!important; transition:none!important} }
+
+.wrap{ max-width:560px; margin:0 auto; padding:0 12px 40px; }
+
+/* ---------- header ---------- */
+header{
+  display:flex; align-items:baseline; gap:10px;
+  padding:14px 2px 10px;
+}
+.mark{ font-weight:700; font-size:19px; letter-spacing:-.02em; }
+.mark span{ color:var(--sig); }
+.tagline{ color:var(--dim); font-size:12.5px; flex:1; }
+.iconbtn{
+  border:1px solid var(--line); background:var(--panel); color:var(--muted);
+  width:34px; height:34px; border-radius:9px; font-size:15px; cursor:pointer;
+  display:grid; place-items:center; flex:none;
+}
+.iconbtn:hover{ color:var(--text); }
+.iconbtn:focus-visible,button:focus-visible,select:focus-visible,textarea:focus-visible,input:focus-visible{
+  outline:2px solid var(--sel); outline-offset:2px;
+}
+
+/* ---------- barra valutazione ---------- */
+.gauge{
+  position:relative; height:26px; border-radius:7px; overflow:hidden;
+  border:1px solid var(--line); background:#2A2A2A; margin-bottom:8px;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+}
+.gauge .fill{
+  position:absolute; inset:0 auto 0 0; width:50%; background:#F2F0EC;
+  transition:width .35s cubic-bezier(.2,.7,.3,1);
+}
+.gauge .mid{ position:absolute; left:50%; top:0; bottom:0; width:1px; background:rgba(128,128,128,.55); }
+.gauge .num{
+  position:absolute; inset:0; display:flex; align-items:center;
+  justify-content:space-between; padding:0 9px;
+  font-size:12px; font-weight:600; letter-spacing:.01em; pointer-events:none;
+}
+.gauge .num b{ color:#1A1A1A; font-weight:600; }
+.gauge .num i{ color:#EDEDED; font-style:normal; font-weight:500; opacity:.85; }
+
+/* ---------- scacchiera ---------- */
+.boardwrap{ position:relative; }
+.board{
+  display:grid; grid-template-columns:repeat(8,1fr); grid-template-rows:repeat(8,1fr);
+  width:100%; aspect-ratio:1/1; border-radius:var(--r); overflow:hidden;
+  box-shadow:var(--shadow); touch-action:manipulation; user-select:none; -webkit-user-select:none;
+}
+.sq{ position:relative; display:grid; place-items:center; cursor:pointer; }
+.sq.l{ background:var(--sq-l); } .sq.d{ background:var(--sq-d); }
+.sq.last::after{ content:""; position:absolute; inset:0; background:var(--sq-last); pointer-events:none; }
+.sq.sel::after{ content:""; position:absolute; inset:0; background:var(--sq-sel); pointer-events:none; }
+.sq.chk::before{
+  content:""; position:absolute; inset:6%; border-radius:50%; pointer-events:none;
+  background:radial-gradient(circle,rgba(200,40,30,.85) 0%,rgba(200,40,30,.5) 55%,transparent 72%);
+}
+.dot{ position:absolute; width:26%; height:26%; border-radius:50%; background:rgba(30,30,30,.28); pointer-events:none; }
+.sq.d .dot{ background:rgba(20,20,20,.30); }
+.ring{ position:absolute; inset:5%; border-radius:50%; border:.38em solid rgba(30,30,30,.26); pointer-events:none; }
+.pc{
+  font-family:"Segoe UI Symbol","Apple Symbols","Noto Sans Symbols 2","DejaVu Sans",sans-serif;
+  font-size:min(11.2vw,62px); line-height:1; position:relative; z-index:1;
+  paint-order:stroke fill; pointer-events:none;
+  filter:drop-shadow(0 1.5px 1.5px rgba(0,0,0,.30));
+}
+.pc.w{ color:#FCFBF8; -webkit-text-stroke:1.7px #2E2B27; }
+.pc.b{ color:#2B2926; -webkit-text-stroke:1.5px #EFEDE8; }
+.coord{ position:absolute; font-size:9.5px; font-weight:600; font-family:"IBM Plex Mono",monospace; opacity:.62; pointer-events:none; }
+.coord.f{ right:3px; bottom:1px; } .coord.r{ left:3px; top:1px; }
+.sq.l .coord{ color:var(--sq-d); } .sq.d .coord{ color:var(--sq-l); }
+
+.statusbar{
+  display:flex; align-items:center; gap:8px; margin:10px 0 4px; min-height:32px;
+}
+.statusbar .msg{ flex:1; font-size:13.5px; color:var(--muted); }
+.statusbar .msg.alert{ color:var(--sig); font-weight:600; }
+.nav{ display:flex; gap:5px; }
+.nav button{
+  border:1px solid var(--line); background:var(--panel); color:var(--muted);
+  width:36px; height:32px; border-radius:8px; cursor:pointer; font-size:13px;
+}
+.nav button:disabled{ opacity:.35; cursor:default; }
+
+/* ---------- tabs ---------- */
+.tabs{
+  display:grid; grid-template-columns:repeat(3,1fr); gap:3px;
+  background:var(--panel-2); border:1px solid var(--line); border-radius:11px; padding:3px; margin:12px 0;
+}
+.tabs button{
+  border:0; background:transparent; color:var(--muted); font-family:inherit;
+  font-size:14px; font-weight:500; padding:8px 4px; border-radius:8px; cursor:pointer;
+}
+.tabs button[aria-selected="true"]{ background:var(--panel); color:var(--text); font-weight:600; box-shadow:var(--shadow); }
+
+/* ---------- pannelli ---------- */
+.panel{ background:var(--panel); border:1px solid var(--line); border-radius:var(--r); padding:14px; box-shadow:var(--shadow); }
+.panel + .panel{ margin-top:10px; }
+.panel h2{ margin:0 0 10px; font-size:14px; font-weight:600; letter-spacing:-.005em; }
+.panel p.note{ margin:8px 0 0; font-size:12.5px; color:var(--dim); line-height:1.5; }
+.hidden{ display:none!important; }
+
+.row{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.row + .row{ margin-top:9px; }
+.row label{ font-size:13px; color:var(--muted); min-width:78px; }
+.grow{ flex:1; min-width:0; }
+
+button.btn{
+  font-family:inherit; font-size:14px; font-weight:500; padding:9px 13px;
+  border-radius:9px; border:1px solid var(--line); background:var(--panel-2);
+  color:var(--text); cursor:pointer;
+}
+button.btn:hover{ border-color:var(--dim); }
+button.btn.primary{ background:var(--sig); border-color:var(--sig); color:#fff; font-weight:600; }
+button.btn.primary:hover{ filter:brightness(1.08); }
+button.btn:disabled{ opacity:.45; cursor:default; }
+select,input[type=text],textarea{
+  font-family:inherit; font-size:14px; padding:8px 10px; border-radius:9px;
+  border:1px solid var(--line); background:var(--panel-2); color:var(--text); width:100%;
+}
+textarea{ font-family:"IBM Plex Mono",ui-monospace,monospace; font-size:12px; line-height:1.55; resize:vertical; min-height:96px; }
+input[type=text].fen{ font-family:"IBM Plex Mono",monospace; font-size:11.5px; }
+
+.seg{ display:flex; gap:0; border:1px solid var(--line); border-radius:9px; overflow:hidden; }
+.seg button{
+  flex:1; border:0; background:var(--panel-2); color:var(--muted);
+  font-family:inherit; font-size:13px; padding:8px 6px; cursor:pointer;
+}
+.seg button + button{ border-left:1px solid var(--line); }
+.seg button[aria-pressed="true"]{ background:var(--sig); color:#fff; font-weight:600; }
+
+/* ---------- lista mosse ---------- */
+.moves{
+  font-family:"IBM Plex Mono",ui-monospace,monospace; font-size:13px;
+  max-height:270px; overflow-y:auto; -webkit-overflow-scrolling:touch;
+  margin:0 -4px;
+}
+.mvrow{ display:grid; grid-template-columns:32px 1fr 1fr; gap:2px; align-items:stretch; }
+.mvrow .n{ color:var(--dim); font-size:11.5px; display:grid; place-items:center; }
+.mv{
+  display:flex; align-items:center; gap:5px; padding:5px 7px; border-radius:6px;
+  cursor:pointer; background:transparent; border:0; font:inherit; color:var(--text);
+  text-align:left; width:100%;
+}
+.mv:hover{ background:var(--panel-2); }
+.mv[aria-current="true"]{ background:var(--sel); color:#fff; }
+.mv .tag{ width:7px; height:7px; border-radius:50%; flex:none; }
+.mv .loss{ margin-left:auto; font-size:10.5px; opacity:.75; }
+.t-good{background:var(--good)} .t-ok{background:var(--ok)} .t-inacc{background:var(--inacc)}
+.t-mist{background:var(--mist)} .t-blun{background:var(--blun)} .t-none{background:transparent}
+
+.legend{ display:flex; flex-wrap:wrap; gap:4px 12px; margin-top:10px; font-size:11.5px; color:var(--muted); }
+.legend i{ display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:5px; vertical-align:1px; }
+
+.verdict{
+  margin-top:10px; padding:10px 12px; border-radius:9px; background:var(--panel-2);
+  border-left:3px solid var(--sig); font-size:13px; line-height:1.55;
+}
+.verdict b{ font-weight:600; }
+.verdict code{ font-family:"IBM Plex Mono",monospace; font-size:12.5px; }
+
+/* ---------- editor pezzi ---------- */
+.palette{ display:grid; grid-template-columns:repeat(7,1fr); gap:4px; }
+.palette button{
+  aspect-ratio:1; border:1px solid var(--line); border-radius:8px; background:var(--panel-2);
+  cursor:pointer; display:grid; place-items:center; padding:0;
+}
+.palette button[aria-pressed="true"]{ border-color:var(--sig); border-width:2px; background:var(--panel); }
+.palette .pc{ font-size:24px; filter:none; }
+.palette .era{ font-size:16px; color:var(--muted); }
+
+.progress{ height:4px; border-radius:2px; background:var(--panel-2); overflow:hidden; margin-top:10px; }
+.progress div{ height:100%; background:var(--sig); width:0; transition:width .2s linear; }
+
+.sheet{
+  position:fixed; inset:0; background:rgba(10,15,20,.55); z-index:50;
+  display:flex; align-items:flex-end; justify-content:center;
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+.sheet .inner{
+  background:var(--panel); border-radius:16px 16px 0 0; width:100%; max-width:560px;
+  padding:18px 16px calc(24px + env(safe-area-inset-bottom,0px)); max-height:82vh; overflow-y:auto;
+}
+.sheet h2{ margin:0 0 14px; font-size:16px; }
+.swatches{ display:grid; grid-template-columns:repeat(auto-fill,minmax(64px,1fr)); gap:8px; }
+.swatches button{ border:2px solid transparent; border-radius:9px; padding:0; overflow:hidden; cursor:pointer; background:none; }
+.swatches button[aria-pressed="true"]{ border-color:var(--sig); }
+.swatches .chip{ display:grid; grid-template-columns:1fr 1fr; height:38px; }
+.swatches .nm{ font-size:10.5px; color:var(--muted); padding:3px 0 5px; }
+
+.enginetag{
+  font-family:"IBM Plex Mono",monospace; font-size:10.5px; color:var(--dim);
+  padding:2px 6px; border:1px solid var(--line); border-radius:5px;
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="mark">Dia<span>gramma</span></div>
+  <div class="tagline" id="engTag">motore in avvio…</div>
+  <button class="iconbtn" id="btnFlip" title="Ruota scacchiera" aria-label="Ruota scacchiera">⇅</button>
+  <button class="iconbtn" id="btnSettings" title="Aspetto" aria-label="Aspetto">◐</button>
+</header>
+
+<div class="gauge" id="gauge">
+  <div class="fill" id="gfill"></div>
+  <div class="mid"></div>
+  <div class="num"><b id="gnum">0.0</b><i id="gdepth"></i></div>
+</div>
+
+<div class="boardwrap"><div class="board" id="board"></div></div>
+
+<div class="statusbar">
+  <div class="msg" id="status">Tocca un pezzo per muoverlo.</div>
+  <div class="nav">
+    <button id="navStart" title="Inizio">⏮</button>
+    <button id="navPrev" title="Indietro">◀</button>
+    <button id="navNext" title="Avanti">▶</button>
+    <button id="navEnd" title="Fine">⏭</button>
+  </div>
+</div>
+
+<div class="tabs" role="tablist">
+  <button role="tab" id="tab-play" aria-selected="true">Gioca</button>
+  <button role="tab" id="tab-analyse" aria-selected="false">Analizza</button>
+  <button role="tab" id="tab-setup" aria-selected="false">Posizione</button>
+</div>
+
+<!-- ======== GIOCA ======== -->
+<section id="pane-play">
+  <div class="panel">
+    <h2>Partita contro il motore</h2>
+    <div class="row">
+      <label for="selSide">Giochi con</label>
+      <div class="seg grow" id="segSide">
+        <button data-v="w" aria-pressed="true">Bianco</button>
+        <button data-v="b" aria-pressed="false">Nero</button>
+      </div>
+    </div>
+    <div class="row">
+      <label for="selLevel">Livello</label>
+      <select id="selLevel" class="grow">
+        <option value="200">Molto facile</option>
+        <option value="600">Facile</option>
+        <option value="1400" selected>Medio</option>
+        <option value="3000">Difficile</option>
+        <option value="7000">Massimo</option>
+      </select>
+    </div>
+    <div class="row">
+      <button class="btn primary grow" id="btnNewGame">Nuova partita</button>
+      <button class="btn grow" id="btnFromBoard">Gioca da questa posizione</button>
+    </div>
+    <div class="row">
+      <button class="btn grow" id="btnUndo">Annulla mossa</button>
+      <button class="btn grow" id="btnHint">Suggerimento</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Allenamento finali</h2>
+    <div class="row">
+      <button class="btn grow" data-drill="kq">Re + Donna</button>
+      <button class="btn grow" data-drill="kr">Re + Torre</button>
+    </div>
+    <div class="row">
+      <button class="btn grow" data-drill="kp">Re + Pedone</button>
+      <button class="btn grow" data-drill="kbn">Alfiere + Cavallo</button>
+    </div>
+    <p class="note">Posizione casuale, tu attacchi, il motore difende al meglio. Il contatore di mosse ti dice se stai rispettando la regola delle 50 mosse.</p>
+  </div>
+</section>
+
+<!-- ======== ANALIZZA ======== -->
+<section id="pane-analyse" class="hidden">
+  <div class="panel">
+    <h2>Le tue partite su chess.com</h2>
+    <div class="row">
+      <input type="text" id="ccUser" class="grow" placeholder="nome utente" spellcheck="false" autocapitalize="off" autocorrect="off">
+      <button class="btn primary" id="btnCcFetch">Scarica</button>
+    </div>
+    <div id="ccList" class="moves hidden" style="margin-top:10px"></div>
+    <p class="note" id="ccNote">Prende le ultime partite giocate. Serve solo il nome utente, nessuna password.</p>
+  </div>
+
+  <div class="panel">
+    <h2>Oppure incolla un PGN</h2>
+    <textarea id="pgnIn" placeholder="Incolla qui il PGN.&#10;&#10;Su chess.com: apri la partita → Condividi → PGN → Copia.&#10;Su Lichess: menu ⋮ → Scarica PGN."></textarea>
+    <div class="row" style="margin-top:9px">
+      <button class="btn primary grow" id="btnLoadPgn">Carica partita</button>
+      <button class="btn" id="btnPastePgn">Incolla</button>
+    </div>
+    <p class="note" id="pgnNote">Funziona anche con un semplice elenco di mosse: <code>1. e4 e5 2. Nf3 Nc6</code></p>
+  </div>
+
+  <div class="panel">
+    <h2>Analisi</h2>
+    <div class="row">
+      <label for="selQual">Profondità</label>
+      <select id="selQual" class="grow">
+        <option value="250">Veloce</option>
+        <option value="700" selected>Normale</option>
+        <option value="2000">Accurata</option>
+      </select>
+    </div>
+    <div class="row">
+      <button class="btn primary grow" id="btnAnalyse">Analizza tutta la partita</button>
+      <button class="btn" id="btnStopAnalyse" disabled>Stop</button>
+    </div>
+    <div class="progress"><div id="progBar"></div></div>
+    <div class="verdict hidden" id="verdict"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Mosse</h2>
+    <div class="moves" id="moveList"></div>
+    <div class="legend">
+      <span><i class="t-good"></i>migliore</span>
+      <span><i class="t-ok"></i>buona</span>
+      <span><i class="t-inacc"></i>imprecisione</span>
+      <span><i class="t-mist"></i>errore</span>
+      <span><i class="t-blun"></i>errore grave</span>
+    </div>
+  </div>
+</section>
+
+<!-- ======== POSIZIONE ======== -->
+<section id="pane-setup" class="hidden">
+  <div class="panel">
+    <h2>Editor</h2>
+    <p class="note" style="margin:0 0 10px">Scegli un pezzo, poi tocca le case. La gomma svuota una casa.</p>
+    <div class="palette" id="palW"></div>
+    <div class="palette" id="palB" style="margin-top:5px"></div>
+    <div class="row" style="margin-top:12px">
+      <label>Muove</label>
+      <div class="seg grow" id="segTurn">
+        <button data-v="w" aria-pressed="true">Bianco</button>
+        <button data-v="b" aria-pressed="false">Nero</button>
+      </div>
+    </div>
+    <div class="row">
+      <button class="btn grow" id="btnClear">Svuota</button>
+      <button class="btn grow" id="btnInitial">Posizione iniziale</button>
+    </div>
+    <div class="row">
+      <button class="btn primary grow" id="btnApplySetup">Usa questa posizione</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>FEN</h2>
+    <input type="text" class="fen" id="fenIo" spellcheck="false" autocapitalize="off" autocorrect="off">
+    <div class="row" style="margin-top:9px">
+      <button class="btn grow" id="btnFenLoad">Carica FEN</button>
+      <button class="btn grow" id="btnFenCopy">Copia FEN</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Posizioni di studio</h2>
+    <div class="row" id="presets"></div>
+  </div>
+</section>
+
+<p class="note" style="text-align:center;margin-top:18px;color:var(--dim);font-size:11.5px">
+  Su iPad e iPhone: Condividi → Aggiungi a Home per usarla a schermo intero.
+</p>
+
+</div>
+
+<!-- ======== FOGLIO ASPETTO ======== -->
+<div class="sheet hidden" id="sheet">
+  <div class="inner">
+    <h2>Aspetto</h2>
+    <div class="row" style="margin-bottom:14px">
+      <label>Tema</label>
+      <div class="seg grow" id="segTheme">
+        <button data-v="auto" aria-pressed="true">Auto</button>
+        <button data-v="light" aria-pressed="false">Chiaro</button>
+        <button data-v="dark" aria-pressed="false">Scuro</button>
+      </div>
+    </div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:8px">Scacchiera</div>
+    <div class="swatches" id="swatches"></div>
+    <div class="row" style="margin-top:16px">
+      <label for="chkCoord">Coordinate</label>
+      <div class="seg grow" id="segCoord">
+        <button data-v="1" aria-pressed="true">Mostra</button>
+        <button data-v="0" aria-pressed="false">Nascondi</button>
+      </div>
+    </div>
+    <button class="btn primary" id="btnCloseSheet" style="width:100%;margin-top:18px">Fatto</button>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ============================================================
+   1. TEMI SCACCHIERA
+   ============================================================ */
+const THEMES = {
+  legno:   { nm:"Legno",    l:"#EBD3A8", d:"#B07E4F", last:"rgba(240,200,60,.34)", sel:"rgba(70,130,190,.32)" },
+  verde:   { nm:"Verde",    l:"#EEEED2", d:"#769656", last:"rgba(255,232,90,.40)", sel:"rgba(70,130,190,.32)" },
+  ardesia: { nm:"Ardesia",  l:"#DDE3E8", d:"#6E8299", last:"rgba(255,225,80,.36)", sel:"rgba(40,110,180,.34)" },
+  carbone: { nm:"Carbone",  l:"#9C9C9C", d:"#565656", last:"rgba(255,220,70,.34)", sel:"rgba(90,150,220,.36)" },
+  sabbia:  { nm:"Sabbia",   l:"#F0E6D2", d:"#C7A06A", last:"rgba(230,180,50,.36)", sel:"rgba(70,130,190,.32)" },
+  ghiaccio:{ nm:"Ghiaccio", l:"#E8EEF4", d:"#8AA8C4", last:"rgba(255,215,70,.38)", sel:"rgba(30,100,180,.34)" },
+  inchiostro:{nm:"Inchiostro",l:"#C9CDD4", d:"#4A5666", last:"rgba(230,190,70,.34)", sel:"rgba(100,160,225,.38)" },
+  rame:    { nm:"Rame",     l:"#E8D9C8", d:"#A56A45", last:"rgba(245,200,70,.36)", sel:"rgba(70,130,190,.32)" }
+};
+
+/* ============================================================
+   2. PREFERENZE (localStorage, tollerante ai fallimenti)
+   ============================================================ */
+const PREFS = { theme:"auto", board:"legno", coord:true, side:"w", level:1400, qual:700 };
+function loadPrefs(){
+  try{ const r=localStorage.getItem("diagramma.prefs"); if(r) Object.assign(PREFS, JSON.parse(r)); }
+  catch(e){}
+}
+function savePrefs(){ try{ localStorage.setItem("diagramma.prefs", JSON.stringify(PREFS)); }catch(e){} }
+loadPrefs();
+
+function applyTheme(){
+  const t = THEMES[PREFS.board] || THEMES.legno;
+  const r = document.documentElement;
+  if(PREFS.theme === "auto") r.removeAttribute("data-theme");
+  else r.setAttribute("data-theme", PREFS.theme);
+  r.style.setProperty("--sq-l", t.l);
+  r.style.setProperty("--sq-d", t.d);
+  r.style.setProperty("--sq-last", t.last);
+  r.style.setProperty("--sq-sel", t.sel);
+}
+applyTheme();
+
+/* ============================================================
+   3. MOTORE INTERNO — negamax + alpha-beta + quiescenza
+   ============================================================ */
+const PV = { p:100, n:320, b:330, r:500, q:900, k:0 };
+const PST = {
+  p:[ 0,0,0,0,0,0,0,0, 50,50,50,50,50,50,50,50, 10,10,20,30,30,20,10,10,
+      5,5,10,25,25,10,5,5, 0,0,0,20,20,0,0,0, 5,-5,-10,0,0,-10,-5,5,
+      5,10,10,-20,-20,10,10,5, 0,0,0,0,0,0,0,0],
+  n:[-50,-40,-30,-30,-30,-30,-40,-50, -40,-20,0,0,0,0,-20,-40, -30,0,10,15,15,10,0,-30,
+     -30,5,15,20,20,15,5,-30, -30,0,15,20,20,15,0,-30, -30,5,10,15,15,10,5,-30,
+     -40,-20,0,5,5,0,-20,-40, -50,-40,-30,-30,-30,-30,-40,-50],
+  b:[-20,-10,-10,-10,-10,-10,-10,-20, -10,0,0,0,0,0,0,-10, -10,0,5,10,10,5,0,-10,
+     -10,5,5,10,10,5,5,-10, -10,0,10,10,10,10,0,-10, -10,10,10,10,10,10,10,-10,
+     -10,5,0,0,0,0,5,-10, -20,-10,-10,-10,-10,-10,-10,-20],
+  r:[0,0,0,0,0,0,0,0, 5,10,10,10,10,10,10,5, -5,0,0,0,0,0,0,-5, -5,0,0,0,0,0,0,-5,
+     -5,0,0,0,0,0,0,-5, -5,0,0,0,0,0,0,-5, -5,0,0,0,0,0,0,-5, 0,0,0,5,5,0,0,0],
+  q:[-20,-10,-10,-5,-5,-10,-10,-20, -10,0,0,0,0,0,0,-10, -10,0,5,5,5,5,0,-10,
+     -5,0,5,5,5,5,0,-5, 0,0,5,5,5,5,0,-5, -10,5,5,5,5,5,0,-10,
+     -10,0,5,0,0,0,0,-10, -20,-10,-10,-5,-5,-10,-10,-20],
+  kMg:[-30,-40,-40,-50,-50,-40,-40,-30, -30,-40,-40,-50,-50,-40,-40,-30,
+       -30,-40,-40,-50,-50,-40,-40,-30, -30,-40,-40,-50,-50,-40,-40,-30,
+       -20,-30,-30,-40,-40,-30,-30,-20, -10,-20,-20,-20,-20,-20,-20,-10,
+        20,20,0,0,0,0,20,20, 20,30,10,0,0,10,30,20],
+  kEg:[-50,-40,-30,-20,-20,-30,-40,-50, -30,-20,-10,0,0,-10,-20,-30,
+       -30,-10,20,30,30,20,-10,-30, -30,-10,30,40,40,30,-10,-30,
+       -30,-10,30,40,40,30,-10,-30, -30,-10,20,30,30,20,-10,-30,
+       -30,-30,0,0,0,0,-30,-30, -50,-30,-30,-30,-30,-30,-30,-50]
+};
+const MATE = 30000;
+const CENTER_DIST = (()=>{ const a=new Array(64);
+  for(let i=0;i<64;i++){ const r=i>>3, f=i&7; a[i]=Math.max(Math.abs(3.5-r),Math.abs(3.5-f)); } return a; })();
+
+function evaluate(g){
+  const b = g.board();
+  let mat = {w:0,b:0}, npm = {w:0,b:0}, sc = 0;
+  let bish = {w:0,b:0}, pawns = {w:0,b:0}, kpos = {w:0,b:0};
+  const sq = [];
+  for(let r=0;r<8;r++) for(let f=0;f<8;f++){
+    const p = b[r][f]; if(!p) continue;
+    const i = r*8+f, mi = (7-r)*8+f;
+    const idx = p.color==="w" ? i : mi;
+    sq.push([p,i,idx]);
+    if(p.type!=="k"){ mat[p.color]+=PV[p.type]; if(p.type!=="p") npm[p.color]+=PV[p.type]; }
+    if(p.type==="b") bish[p.color]++;
+    if(p.type==="p") pawns[p.color]++;
+    if(p.type==="k") kpos[p.color]=i;
+  }
+  // fase: 1 = finale puro
+  const eg = Math.max(0, Math.min(1, 1 - (npm.w+npm.b)/6200));
+  for(const [p,i,idx] of sq){
+    let v = PV[p.type];
+    if(p.type==="k") v += PST.kMg[idx]*(1-eg) + PST.kEg[idx]*eg;
+    else v += PST[p.type][idx];
+    sc += (p.color==="w" ? v : -v);
+  }
+  if(bish.w>=2) sc += 30;
+  if(bish.b>=2) sc -= 30;
+
+  // spinta al matto: forte contro re nudo (K+Q, K+R, K+2B…)
+  const diff = mat.w - mat.b;
+  if(Math.abs(diff) > 350){
+    const strong = diff>0 ? "w":"b", weak = diff>0 ? "b":"w";
+    if(pawns[weak] === 0){
+      const wk = kpos[weak], sk = kpos[strong];
+      const md = Math.abs((wk>>3)-(sk>>3)) + Math.abs((wk&7)-(sk&7));
+      const push = CENTER_DIST[wk]*17 + (14-md)*6;
+      sc += (strong==="w" ? push : -push) * (0.4+0.6*eg);
+    }
+  }
+  return g.turn()==="w" ? sc : -sc;
+}
+
+const MVV = {p:1,n:2,b:3,r:4,q:5,k:6};
+function orderMoves(ms){
+  for(const m of ms){
+    let s = 0;
+    if(m.captured) s = 100 + MVV[m.captured]*10 - MVV[m.piece];
+    if(m.promotion) s += 90 + MVV[m.promotion];
+    if(m.flags && m.flags.indexOf("k")>=0) s += 5;
+    m._s = s;
+  }
+  ms.sort((a,b)=>b._s-a._s);
+  return ms;
+}
+
+let _deadline = 0, _nodes = 0;
+function TIMEOUT(){ const e=new Error("timeout"); e.to=true; return e; }
+function checkTime(){ if((++_nodes & 511)===0 && Date.now() > _deadline) throw TIMEOUT(); }
+
+function quiesce(g, alpha, beta, ply){
+  checkTime();
+  let stand = evaluate(g);
+  if(stand >= beta) return beta;
+  if(stand > alpha) alpha = stand;
+  const caps = orderMoves(g.moves({verbose:true}).filter(m=>m.captured||m.promotion));
+  for(const m of caps){
+    g.move(m);
+    const v = -quiesce(g, -beta, -alpha, ply+1);
+    g.undo();
+    if(v >= beta) return beta;
+    if(v > alpha) alpha = v;
+  }
+  return alpha;
+}
+
+function negamax(g, depth, alpha, beta, ply){
+  checkTime();
+  const ms = g.moves({verbose:true});
+  if(ms.length === 0) return g.in_check() ? -MATE + ply : 0;
+  if(g.in_draw() || g.in_threefold_repetition()) return 0;
+  if(depth <= 0) return quiesce(g, alpha, beta, ply);
+  orderMoves(ms);
+  let best = -Infinity;
+  for(const m of ms){
+    g.move(m);
+    const v = -negamax(g, depth-1, -beta, -alpha, ply+1);
+    g.undo();
+    if(v > best) best = v;
+    if(v > alpha) alpha = v;
+    if(alpha >= beta) break;
+  }
+  return best;
+}
+
+/* ricerca radice con approfondimento iterativo */
+function localSearch(fen, ms){
+  const g = new Chess(fen);
+  const root = g.moves({verbose:true});
+  if(root.length === 0) return null;
+  _deadline = Date.now() + ms; _nodes = 0;
+  let best = root[0], bestScore = 0, reached = 0, pv = [];
+  for(let d=1; d<=20; d++){
+    let alpha = -Infinity, curBest = null, curScore = -Infinity;
+    orderMoves(root);
+    // la mossa migliore del giro precedente va provata per prima
+    const bi = root.indexOf(best);
+    if(bi > 0){ root.splice(bi,1); root.unshift(best); }
+    try{
+      for(const m of root){
+        g.move(m);
+        const v = -negamax(g, d-1, -Infinity, -alpha, 1);
+        g.undo();
+        if(v > curScore){ curScore = v; curBest = m; }
+        if(v > alpha) alpha = v;
+      }
+    }catch(e){ if(!e.to) throw e; break; }
+    best = curBest || best; bestScore = curScore; reached = d;
+    if(Math.abs(bestScore) > MATE - 100) break;
+    if(Date.now() > _deadline) break;
+  }
+  // linea principale (breve): rigioca le migliori
+  try{
+    const gg = new Chess(fen); pv = [];
+    for(let i=0;i<Math.min(reached,6);i++){
+      _deadline = Date.now()+80;
+      const sub = gg.moves({verbose:true}); if(!sub.length) break;
+      orderMoves(sub);
+      let bm=sub[0], bs=-Infinity;
+      for(const m of sub){ gg.move(m); let v; try{ v=-negamax(gg,1,-Infinity,Infinity,1); }catch(e){ v=-evaluate(gg); } gg.undo();
+        if(v>bs){bs=v;bm=m;} }
+      pv.push(bm.san); gg.move(bm);
+    }
+  }catch(e){ pv=[]; }
+
+  const stm = g.turn();
+  let cp = bestScore, mate = null;
+  if(Math.abs(bestScore) > MATE - 100){
+    const n = Math.ceil((MATE - Math.abs(bestScore))/2);
+    mate = bestScore > 0 ? n : -n;
+  }
+  // normalizza al punto di vista del Bianco
+  if(stm === "b"){ cp = -cp; if(mate !== null) mate = -mate; }
+  return { cp, mate, depth:reached, best, pv, uci: best.from+best.to+(best.promotion||"") };
+}
+
+/* ============================================================
+   4. STOCKFISH (se il browser lo consente) — altrimenti locale
+   ============================================================ */
+const Engine = { kind:"locale", sf:null, busy:false };
+
+function bootStockfish(){
+  return new Promise(res=>{
+    let done = false;
+    const give = v => { if(!done){ done=true; res(v); } };
+    const t = setTimeout(()=>give(null), 12000);
+    try{
+      const url = "https://cdn.jsdelivr.net/npm/stockfish.js@10.0.2/stockfish.js";
+      const blob = new Blob(["importScripts('"+url+"');"], {type:"application/javascript"});
+      const w = new Worker(URL.createObjectURL(blob));
+      w.onerror = ()=>{ clearTimeout(t); give(null); };
+      w.onmessage = e=>{
+        const s = typeof e.data === "string" ? e.data : (e.data && e.data.data) || "";
+        if(/uciok/.test(s)){ clearTimeout(t); give(w); }
+      };
+      w.postMessage("uci");
+    }catch(e){ clearTimeout(t); give(null); }
+  });
+}
+
+function sfSearch(fen, ms){
+  return new Promise(resolve=>{
+    const w = Engine.sf;
+    let cp=0, mate=null, depth=0, pv=[], stm = fen.split(" ")[1] || "w";
+    const onMsg = e=>{
+      const s = typeof e.data === "string" ? e.data : (e.data && e.data.data) || "";
+      if(s.indexOf("info ")===0 && s.indexOf(" pv ")>0){
+        const dm = s.match(/ depth (\d+)/); if(dm) depth = +dm[1];
+        const cm = s.match(/score cp (-?\d+)/);
+        const mm = s.match(/score mate (-?\d+)/);
+        if(mm){ mate = +mm[1]; cp = mate>0 ? 2000 : -2000; }
+        else if(cm){ cp = +cm[1]; mate = null; }
+        const pm = s.match(/ pv (.+)$/); if(pm) pv = pm[1].trim().split(/\s+/).slice(0,8);
+      }
+      if(s.indexOf("bestmove")===0){
+        w.removeEventListener("message", onMsg);
+        const u = s.split(/\s+/)[1] || "";
+        let ccp = cp, cmate = mate;
+        if(stm === "b"){ ccp = -ccp; if(cmate!==null) cmate = -cmate; }
+        resolve({ cp:ccp, mate:cmate, depth, uci:u, pvUci:pv, pv:[] });
+      }
+    };
+    w.addEventListener("message", onMsg);
+    w.postMessage("position fen " + fen);
+    w.postMessage("go movetime " + ms);
+  });
+}
+
+/* converte una PV in UCI verso notazione SAN leggibile */
+function uciPvToSan(fen, list){
+  const g = new Chess(fen), out = [];
+  for(const u of list){
+    const m = g.move({from:u.slice(0,2), to:u.slice(2,4), promotion:u.length>4?u[4]:undefined});
+    if(!m) break; out.push(m.san);
+  }
+  return out;
+}
+
+async function analyse(fen, ms){
+  const g = new Chess(fen);
+  if(g.moves().length === 0){
+    const cp = g.in_checkmate() ? (g.turn()==="w" ? -3000 : 3000) : 0;
+    return { cp, mate:null, depth:0, uci:null, pv:[], over:true };
+  }
+  if(Engine.kind === "stockfish"){
+    const r = await sfSearch(fen, ms);
+    r.pv = uciPvToSan(fen, r.pvUci || []);
+    return r;
+  }
+  const r = localSearch(fen, ms);
+  return r || { cp:0, mate:null, depth:0, uci:null, pv:[] };
+}
+
+(async ()=>{
+  const w = await bootStockfish();
+  if(w){
+    Engine.sf = w; Engine.kind = "stockfish";
+    w.postMessage("setoption name Hash value 16");
+    w.postMessage("ucinewgame");
+    document.getElementById("engTag").innerHTML = '<span class="enginetag">Stockfish 10</span>';
+  }else{
+    document.getElementById("engTag").innerHTML = '<span class="enginetag">motore interno</span>';
+  }
+})();
+
+/* ============================================================
+   5. STATO
+   ============================================================ */
+const GLYPH = { k:"\u265A\uFE0E", q:"\u265B\uFE0E", r:"\u265C\uFE0E", b:"\u265D\uFE0E", n:"\u265E\uFE0E", p:"\u265F\uFE0E" };
+const FILES = "abcdefgh";
+
+const S = {
+  mode: "play",
+  game: new Chess(),          // partita completa
+  startFen: null,             // posizione di partenza (null = iniziale)
+  view: 0,                    // ply visualizzato
+  evals: [],                  // per posizione
+  tags: [],                   // per mossa
+  flipped: false,
+  playerColor: PREFS.side,
+  thinking: false,
+  selected: null,
+  legal: [],
+  editing: false,
+  editChess: null,
+  editPiece: null,
+  editTurn: "w",
+  drill: null,
+  stopFlag: false
+};
+
+function positions(){
+  const g = new Chess(S.startFen || undefined);
+  const hist = S.game.history({verbose:true});
+  const out = [g.fen()];
+  for(const m of hist){ g.move(m); out.push(g.fen()); }
+  return out;
+}
+function viewFen(){
+  if(S.editing) return S.editChess.fen();
+  return positions()[S.view];
+}
+function viewChess(){ return new Chess(viewFen()); }
+function atLive(){ return S.view === S.game.history().length; }
+
+/* ============================================================
+   6. SCACCHIERA
+   ============================================================ */
+const boardEl = document.getElementById("board");
+function buildBoard(){
+  boardEl.innerHTML = "";
+  for(let i=0;i<64;i++){
+    const d = document.createElement("div");
+    d.className = "sq";
+    d.addEventListener("click", onSquare);
+    boardEl.appendChild(d);
+  }
+}
+buildBoard();
+
+function squareName(vis){                       // indice visuale → casa
+  const r = Math.floor(vis/8), f = vis%8;
+  return S.flipped ? FILES[7-f] + (r+1) : FILES[f] + (8-r);
+}
+function visIndex(sq){
+  const f = FILES.indexOf(sq[0]), r = +sq[1];
+  return S.flipped ? (r-1)*8 + (7-f) : (8-r)*8 + f;
+}
+
+function render(){
+  const fen = viewFen();
+  const g = S.editing ? S.editChess : new Chess(fen);
+  const b = g.board();
+  const cells = boardEl.children;
+  const lastMove = lastMoveSquares();
+  let kingInCheck = null;
+  if(!S.editing && g.in_check()){
+    for(let r=0;r<8;r++) for(let f=0;f<8;f++){
+      const p=b[r][f]; if(p && p.type==="k" && p.color===g.turn()) kingInCheck = FILES[f]+(8-r);
+    }
+  }
+  for(let v=0; v<64; v++){
+    const sq = squareName(v);
+    const f = FILES.indexOf(sq[0]), rr = 8 - (+sq[1]);
+    const p = b[rr][f];
+    const el = cells[v];
+    const dark = (f + rr) % 2 === 1;
+    let cls = "sq " + (dark ? "d" : "l");
+    if(lastMove && (sq===lastMove[0] || sq===lastMove[1])) cls += " last";
+    if(S.selected === sq) cls += " sel";
+    if(kingInCheck === sq) cls += " chk";
+    el.className = cls;
+    let html = "";
+    if(p) html += '<span class="pc '+p.color+'">'+GLYPH[p.type]+'</span>';
+    if(S.legal.indexOf(sq) >= 0) html += p ? '<span class="ring"></span>' : '<span class="dot"></span>';
+    if(PREFS.coord){
+      const vr = Math.floor(v/8), vf = v%8;
+      if(vr === 7) html += '<span class="coord f">'+sq[0]+'</span>';
+      if(vf === 0) html += '<span class="coord r">'+sq[1]+'</span>';
+    }
+    el.innerHTML = html;
+  }
+  renderNav();
+  renderMoveList();
+  if(S.editing) document.getElementById("fenIo").value = S.editChess.fen();
+}
+
+function lastMoveSquares(){
+  if(S.editing || S.view === 0) return null;
+  const h = S.game.history({verbose:true});
+  const m = h[S.view-1];
+  return m ? [m.from, m.to] : null;
+}
+
+/* ---- interazione ---- */
+function onSquare(e){
+  const v = Array.prototype.indexOf.call(boardEl.children, e.currentTarget);
+  const sq = squareName(v);
+
+  if(S.editing){
+    if(S.editPiece === null) return;
+    if(S.editPiece === "x") S.editChess.remove(sq);
+    else S.editChess.put({type:S.editPiece[1], color:S.editPiece[0]}, sq);
+    render();
+    return;
+  }
+
+  if(S.thinking) return;
+  if(!atLive()){ setStatus("Sei indietro nella partita. Vai a fine per giocare.", true); return; }
+
+  const g = S.game;
+  const piece = g.get(sq);
+
+  if(S.selected){
+    if(sq === S.selected){ S.selected = null; S.legal = []; render(); return; }
+    const cands = g.moves({square:S.selected, verbose:true}).filter(m=>m.to===sq);
+    if(cands.length){
+      let promo;
+      if(cands.some(m=>m.promotion)) promo = askPromotion();
+      doMove({from:S.selected, to:sq, promotion:promo});
+      return;
+    }
+  }
+  if(piece && piece.color === g.turn()){
+    S.selected = sq;
+    S.legal = g.moves({square:sq, verbose:true}).map(m=>m.to);
+  }else{
+    S.selected = null; S.legal = [];
+  }
+  render();
+}
+
+function askPromotion(){
+  const c = prompt("Promuovi in: q = donna, r = torre, b = alfiere, n = cavallo", "q");
+  const v = (c||"q").trim().toLowerCase();
+  return ["q","r","b","n"].indexOf(v)>=0 ? v : "q";
+}
+
+function doMove(mv){
+  const m = S.game.move(mv);
+  if(!m) return;
+  S.selected = null; S.legal = [];
+  S.view = S.game.history().length;
+  S.evals.length = S.view;  // invalida oltre
+  render();
+  const end = endMessage();
+  if(end){ setStatus(end, true); return; }
+  if(S.mode === "play" && S.game.turn() !== S.playerColor) setTimeout(engineMove, 180);
+  else updateGauge();
+}
+
+function endMessage(){
+  const g = S.game;
+  if(g.in_checkmate()) return g.turn()===S.playerColor ? "Scacco matto. Hai perso." : "Scacco matto. Hai vinto.";
+  if(g.in_stalemate()) return "Stallo — patta. È la trappola classica.";
+  if(g.in_threefold_repetition()) return "Patta per ripetizione.";
+  if(g.insufficient_material()) return "Patta per materiale insufficiente.";
+  if(g.in_draw()) return "Patta (regola delle 50 mosse).";
+  return null;
+}
+
+async function engineMove(){
+  if(S.thinking) return;
+  S.thinking = true;
+  setStatus("Il motore sta pensando…");
+  await frame();
+  const r = await analyse(S.game.fen(), +PREFS.level);
+  S.thinking = false;
+  if(!r || !r.uci){ setStatus(endMessage() || "Nessuna mossa."); return; }
+  S.game.move({from:r.uci.slice(0,2), to:r.uci.slice(2,4), promotion:r.uci.length>4?r.uci[4]:undefined});
+  S.view = S.game.history().length;
+  render();
+  setEval(r);
+  const end = endMessage();
+  setStatus(end || drillStatus() || "Tocca a te.", !!end);
+}
+
+function frame(){ return new Promise(r=>requestAnimationFrame(()=>setTimeout(r,0))); }
+
+/* ============================================================
+   7. INDICATORI
+   ============================================================ */
+const gfill = document.getElementById("gfill");
+const gnum  = document.getElementById("gnum");
+const gdep  = document.getElementById("gdepth");
+
+function setEval(r){
+  if(!r){ gfill.style.width="50%"; gnum.textContent="0.0"; gdep.textContent=""; return; }
+  let pct, label;
+  if(r.mate !== null && r.mate !== undefined){
+    pct = r.mate > 0 ? 100 : 0;
+    label = "M" + Math.abs(r.mate);
+  }else{
+    const cp = Math.max(-1500, Math.min(1500, r.cp));
+    pct = 50 + 50 * (2/(1+Math.exp(-cp/380)) - 1);
+    label = (cp>=0?"+":"") + (cp/100).toFixed(1);
+  }
+  gfill.style.width = pct.toFixed(1) + "%";
+  gnum.textContent = label;
+  gdep.textContent = r.depth ? "d"+r.depth : "";
+  // il numero sta sulla parte chiara solo se c'è spazio
+  gnum.style.color = pct < 18 ? "#F2F0EC" : "#1A1A1A";
+}
+
+function setStatus(t, alert){
+  const el = document.getElementById("status");
+  el.textContent = t;
+  el.className = "msg" + (alert ? " alert" : "");
+}
+
+async function updateGauge(){
+  if(S.thinking) return;
+  const fen = viewFen();
+  S.thinking = true;
+  const r = await analyse(fen, Math.min(600, +PREFS.qual));
+  S.thinking = false;
+  setEval(r);
+}
+
+function renderNav(){
+  const n = S.game.history().length;
+  document.getElementById("navStart").disabled = S.editing || S.view===0;
+  document.getElementById("navPrev").disabled  = S.editing || S.view===0;
+  document.getElementById("navNext").disabled  = S.editing || S.view>=n;
+  document.getElementById("navEnd").disabled   = S.editing || S.view>=n;
+}
+
+/* ============================================================
+   8. LISTA MOSSE
+   ============================================================ */
+const TAGNAME = { good:"migliore", ok:"buona", inacc:"imprecisione", mist:"errore", blun:"errore grave" };
+function renderMoveList(){
+  const el = document.getElementById("moveList");
+  const h = S.game.history();
+  if(!h.length){ el.innerHTML = '<p class="note" style="margin:0">Nessuna mossa. Gioca o carica un PGN.</p>'; return; }
+  let out = "";
+  for(let i=0;i<h.length;i+=2){
+    out += '<div class="mvrow"><div class="n">'+(i/2+1)+'</div>';
+    for(let k=0;k<2;k++){
+      const j = i+k;
+      if(j >= h.length){ out += '<div></div>'; continue; }
+      const t = S.tags[j];
+      const loss = t && t.loss!=null && t.k!=="good" ? ("−"+(t.loss/100).toFixed(1)) : "";
+      out += '<button class="mv" data-ply="'+(j+1)+'" aria-current="'+(S.view===j+1)+'">'
+           + '<span class="tag t-'+(t? t.k : "none")+'"></span>'
+           + '<span>'+h[j]+'</span>'
+           + (loss ? '<span class="loss">'+loss+'</span>' : '')
+           + '</button>';
+    }
+    out += '</div>';
+  }
+  el.innerHTML = out;
+  el.querySelectorAll(".mv").forEach(b=>b.addEventListener("click", ()=>{
+    S.view = +b.dataset.ply; S.selected=null; S.legal=[];
+    render(); showPlyEval();
+  }));
+  const cur = el.querySelector('[aria-current="true"]');
+  if(cur) cur.scrollIntoView({block:"nearest"});
+}
+
+function showPlyEval(){
+  const e = S.evals[S.view];
+  if(e){ setEval(e); describePly(); }
+  else updateGauge();
+}
+
+function describePly(){
+  const t = S.tags[S.view-1];
+  if(!t){ setStatus(""); return; }
+  if(t.k === "good"){ setStatus("Mossa migliore."); return; }
+  const best = t.bestSan ? " Meglio " + t.bestSan + "." : "";
+  setStatus(TAGNAME[t.k].charAt(0).toUpperCase()+TAGNAME[t.k].slice(1)
+    + " (−" + (t.loss/100).toFixed(2) + ")." + best, t.k==="blun"||t.k==="mist");
+}
+
+/* ============================================================
+   9. ANALISI COMPLETA
+   ============================================================ */
+function classify(loss, isBest){
+  if(isBest) return "good";
+  if(loss >= 300) return "blun";
+  if(loss >= 150) return "mist";
+  if(loss >= 50)  return "inacc";
+  if(loss >= 20)  return "ok";
+  return "good";
+}
+function toWhitePov(e){ return e.mate!==null && e.mate!==undefined ? (e.mate>0?2000:-2000) : e.cp; }
+
+async function analyseGame(){
+  const pos = positions();
+  if(pos.length < 2){ setStatus("Carica prima una partita."); return; }
+  S.stopFlag = false;
+  const ms = +PREFS.qual;
+  const btn = document.getElementById("btnAnalyse"), stop = document.getElementById("btnStopAnalyse");
+  btn.disabled = true; stop.disabled = false;
+  const bar = document.getElementById("progBar");
+  S.evals = new Array(pos.length); S.tags = new Array(pos.length-1);
+  const hist = S.game.history({verbose:true});
+
+  for(let i=0;i<pos.length;i++){
+    if(S.stopFlag) break;
+    const r = await analyse(pos[i], ms);
+    S.evals[i] = r;
+    if(i > 0){
+      const moverIsWhite = (pos[i-1].split(" ")[1] || "w") === "w";
+      const before = toWhitePov(S.evals[i-1]), after = toWhitePov(r);
+      const sign = moverIsWhite ? 1 : -1;
+      const loss = Math.max(0, (before - after) * sign);
+      const played = hist[i-1];
+      const bestUci = S.evals[i-1].uci || "";
+      const playedUci = played.from + played.to + (played.promotion||"");
+      const isBest = bestUci && bestUci === playedUci;
+      let bestSan = "";
+      if(!isBest && bestUci){
+        const gg = new Chess(pos[i-1]);
+        const bm = gg.move({from:bestUci.slice(0,2), to:bestUci.slice(2,4), promotion:bestUci.length>4?bestUci[4]:undefined});
+        if(bm) bestSan = bm.san;
+      }
+      S.tags[i-1] = { k:classify(loss, isBest), loss:Math.round(loss), bestSan };
+    }
+    bar.style.width = Math.round(100*(i+1)/pos.length) + "%";
+    renderMoveList();
+    await frame();
+  }
+  btn.disabled = false; stop.disabled = true;
+  bar.style.width = "0%";
+  summarise();
+  render(); showPlyEval();
+}
+
+function summarise(){
+  const v = document.getElementById("verdict");
+  const counts = {w:{}, b:{}};
+  S.tags.forEach((t,i)=>{
+    if(!t) return;
+    const side = i % 2 === 0 ? "w" : "b";
+    counts[side][t.k] = (counts[side][t.k]||0)+1;
+  });
+  const PL = { blun:"errori gravi", mist:"errori", inacc:"imprecisioni" };
+  const fmt = c => ["blun","mist","inacc"].map(k=>(c[k]||0)+" "+PL[k]).join(" · ");
+  const worst = S.tags.map((t,i)=>({t,i})).filter(x=>x.t&&x.t.k==="blun").sort((a,b)=>b.t.loss-a.t.loss)[0];
+  let html = "<b>Bianco</b> " + fmt(counts.w) + "<br><b>Nero</b> " + fmt(counts.b);
+  if(worst){
+    const n = Math.floor(worst.i/2)+1, side = worst.i%2===0 ? "" : "…";
+    html += "<br><br>Errore più costoso: mossa <code>"+n+"."+side+" "+S.game.history()[worst.i]+"</code>"
+          + (worst.t.bestSan ? ", meglio <code>"+worst.t.bestSan+"</code>" : "") + ".";
+  }
+  v.innerHTML = html; v.classList.remove("hidden");
+}
+
+/* ============================================================
+   10. PGN
+   ============================================================ */
+function loadPgn(txt){
+  if(!txt || !txt.trim()){ setStatus("Nessun PGN da caricare.", true); return false; }
+  const g = new Chess();
+  let ok = g.load_pgn(txt, {sloppy:true});
+  if(!ok){
+    const cleaned = txt.replace(/\{[^}]*\}/g, "").replace(/\$\d+/g, "").replace(/\s+/g," ").trim();
+    ok = g.load_pgn(cleaned, {sloppy:true});
+  }
+  if(!ok){ setStatus("PGN non riconosciuto. Controlla di aver copiato tutto il testo.", true); return false; }
+  const hdr = g.header();
+  S.startFen = hdr.FEN || null;
+  S.game = g;
+  S.view = 0;
+  S.evals = []; S.tags = [];
+  S.mode = "analyse";
+  render();
+  const w = hdr.White || "Bianco", b = hdr.Black || "Nero", res = hdr.Result || "";
+  setStatus(w + " – " + b + (res ? "  " + res : "") + " · " + g.history().length + " mosse");
+  document.getElementById("verdict").classList.add("hidden");
+  setEval(null);
+  return true;
+}
+
+/* ============================================================
+   11. FINALI DI ALLENAMENTO
+   ============================================================ */
+function randSq(used){
+  let s;
+  do{ s = FILES[(Math.random()*8)|0] + (1 + ((Math.random()*8)|0)); }while(used.indexOf(s)>=0);
+  used.push(s); return s;
+}
+function dist(a,b){
+  return Math.max(Math.abs(FILES.indexOf(a[0])-FILES.indexOf(b[0])), Math.abs(+a[1]-+b[1]));
+}
+function makeDrill(kind){
+  for(let tries=0; tries<400; tries++){
+    const g = new Chess(); g.clear();
+    const used = [];
+    const wk = randSq(used), bk = randSq(used);
+    if(dist(wk,bk) < 2) continue;
+    g.put({type:"k",color:"w"}, wk);
+    g.put({type:"k",color:"b"}, bk);
+    if(kind === "kq") g.put({type:"q",color:"w"}, randSq(used));
+    else if(kind === "kr") g.put({type:"r",color:"w"}, randSq(used));
+    else if(kind === "kbn"){ 
+      const b1 = randSq(used); g.put({type:"b",color:"w"}, b1);
+      g.put({type:"n",color:"w"}, randSq(used));
+    }
+    else if(kind === "kp"){
+      const f = FILES[(Math.random()*8)|0], r = 2 + ((Math.random()*4)|0);
+      const ps = f+r; if(used.indexOf(ps)>=0) continue;
+      g.put({type:"p",color:"w"}, ps);
+    }
+    const fen = g.fen().replace(/ (w|b) /, " w ");
+    const t = new Chess(fen);
+    if(!t.validate_fen(fen).valid) continue;
+    if(t.in_check() || t.game_over()) continue;
+    return fen;
+  }
+  return null;
+}
+function startDrill(kind){
+  const fen = makeDrill(kind);
+  if(!fen){ setStatus("Non sono riuscito a generare la posizione, riprova.", true); return; }
+  S.startFen = fen;
+  S.game = new Chess(fen);
+  S.view = 0; S.evals=[]; S.tags=[];
+  S.playerColor = "w";
+  S.drill = { kind, start: 0 };
+  S.mode = "play";
+  setTab("play");
+  segSet("segSide","w");
+  S.flipped = false;
+  render();
+  setStatus(drillStatus());
+  updateGauge();
+}
+function drillStatus(){
+  if(!S.drill) return null;
+  const half = S.game.history().length;
+  const full = Math.floor(half/2);
+  const left = 50 - full;
+  return "Matto entro " + left + " mosse per la regola delle 50.";
+}
+
+/* ============================================================
+   12. EDITOR
+   ============================================================ */
+function buildPalettes(){
+  const order = ["k","q","r","b","n","p"];
+  const mk = (host, color) => {
+    host.innerHTML = "";
+    for(const t of order){
+      const btn = document.createElement("button");
+      btn.dataset.p = color + t;
+      btn.setAttribute("aria-pressed","false");
+      btn.innerHTML = '<span class="pc '+color+'">'+GLYPH[t]+'</span>';
+      btn.addEventListener("click", ()=>pickPiece(color+t));
+      host.appendChild(btn);
+    }
+    if(color === "b"){
+      const er = document.createElement("button");
+      er.dataset.p = "x"; er.setAttribute("aria-pressed","false");
+      er.innerHTML = '<span class="era">⌫</span>';
+      er.addEventListener("click", ()=>pickPiece("x"));
+      host.appendChild(er);
+    }else{
+      const sp = document.createElement("div"); host.appendChild(sp);
+    }
+  };
+  mk(document.getElementById("palW"), "w");
+  mk(document.getElementById("palB"), "b");
+}
+function pickPiece(p){
+  S.editPiece = (S.editPiece === p) ? null : p;
+  document.querySelectorAll(".palette button").forEach(b=>{
+    b.setAttribute("aria-pressed", String(b.dataset.p === S.editPiece));
+  });
+}
+function enterEditor(){
+  S.editing = true;
+  S.editChess = new Chess(viewFen());
+  S.editTurn = S.editChess.turn();
+  segSet("segTurn", S.editTurn);
+  S.selected=null; S.legal=[];
+  render();
+  setStatus("Editor: scegli un pezzo, poi tocca le case.");
+}
+function exitEditor(){ S.editing = false; S.editPiece = null; pickPiece(null); }
+
+function editFenWithTurn(){
+  const parts = S.editChess.fen().split(" ");
+  parts[1] = S.editTurn;
+  parts[3] = "-";
+  parts[4] = "0"; parts[5] = "1";
+  return parts.join(" ");
+}
+function applySetup(){
+  const fen = editFenWithTurn();
+  const v = new Chess().validate_fen(fen);
+  if(!v.valid){ setStatus("Posizione non valida: " + v.error, true); return; }
+  const t = new Chess(fen);
+  S.startFen = fen; S.game = new Chess(fen);
+  S.view = 0; S.evals=[]; S.tags=[]; S.drill = null;
+  exitEditor();
+  setTab("play");
+  render();
+  setStatus(t.game_over() ? "Posizione già finita." : "Posizione caricata. Tocca a " + (t.turn()==="w"?"Bianco":"Nero") + ".");
+  updateGauge();
+}
+
+const PRESETS = [
+  ["Donna e Re", "8/8/8/8/2Q5/8/3K4/1k6 w - - 0 1"],
+  ["Torre e Re", "8/8/8/8/8/3k4/8/R3K3 w - - 0 1"],
+  ["Lucena", "1K1k4/1P6/8/8/8/8/r7/2R5 w - - 0 1"],
+  ["Philidor", "8/8/8/8/1k6/8/r7/1K1R4 b - - 0 1"],
+  ["Opposizione", "8/8/8/3k4/8/3K4/4P3/8 w - - 0 1"],
+  ["Due alfieri", "8/8/8/4k3/8/8/4BB2/4K3 w - - 0 1"]
+];
+function buildPresets(){
+  const host = document.getElementById("presets");
+  host.innerHTML = "";
+  for(const [nm,fen] of PRESETS){
+    const b = document.createElement("button");
+    b.className = "btn grow"; b.textContent = nm;
+    b.addEventListener("click", ()=>{
+      S.editChess = new Chess(fen);
+      S.editTurn = S.editChess.turn();
+      S.editing = true;
+      segSet("segTurn", S.editTurn);
+      render();
+      setStatus(nm + " caricata nell'editor. Premi «Usa questa posizione».");
+    });
+    host.appendChild(b);
+  }
+}
+
+/* ============================================================
+   13. UI: tab, segmenti, foglio
+   ============================================================ */
+function setTab(name){
+  S.mode = name;
+  for(const k of ["play","analyse","setup"]){
+    document.getElementById("tab-"+k).setAttribute("aria-selected", String(k===name));
+    document.getElementById("pane-"+k).classList.toggle("hidden", k!==name);
+  }
+  if(name === "setup") enterEditor();
+  else if(S.editing) { exitEditor(); render(); }
+}
+["play","analyse","setup"].forEach(k=>{
+  document.getElementById("tab-"+k).addEventListener("click", ()=>setTab(k));
+});
+
+function segSet(id, val){
+  document.querySelectorAll("#"+id+" button").forEach(b=>{
+    b.setAttribute("aria-pressed", String(b.dataset.v === String(val)));
+  });
+}
+function segWire(id, fn){
+  document.querySelectorAll("#"+id+" button").forEach(b=>{
+    b.addEventListener("click", ()=>{ segSet(id, b.dataset.v); fn(b.dataset.v); });
+  });
+}
+segWire("segSide", v=>{
+  S.playerColor = v; PREFS.side = v; savePrefs();
+  S.flipped = v === "b"; render();
+  if(S.mode==="play" && S.game.turn()!==S.playerColor && !S.game.game_over()) engineMove();
+});
+segWire("segTurn", v=>{ S.editTurn = v; render(); });
+segWire("segTheme", v=>{ PREFS.theme = v; savePrefs(); applyTheme(); });
+segWire("segCoord", v=>{ PREFS.coord = v === "1"; savePrefs(); render(); });
+
+document.getElementById("selLevel").addEventListener("change", e=>{ PREFS.level = +e.target.value; savePrefs(); });
+document.getElementById("selQual").addEventListener("change", e=>{ PREFS.qual = +e.target.value; savePrefs(); });
+
+document.getElementById("btnFlip").addEventListener("click", ()=>{ S.flipped = !S.flipped; render(); });
+
+const sheet = document.getElementById("sheet");
+document.getElementById("btnSettings").addEventListener("click", ()=>sheet.classList.remove("hidden"));
+document.getElementById("btnCloseSheet").addEventListener("click", ()=>sheet.classList.add("hidden"));
+sheet.addEventListener("click", e=>{ if(e.target === sheet) sheet.classList.add("hidden"); });
+
+function buildSwatches(){
+  const host = document.getElementById("swatches");
+  host.innerHTML = "";
+  for(const [k,t] of Object.entries(THEMES)){
+    const b = document.createElement("button");
+    b.setAttribute("aria-pressed", String(k===PREFS.board));
+    b.innerHTML = '<div class="chip"><div style="background:'+t.l+'"></div><div style="background:'+t.d+'"></div></div>'
+                + '<div class="nm">'+t.nm+'</div>';
+    b.addEventListener("click", ()=>{
+      PREFS.board = k; savePrefs(); applyTheme();
+      host.querySelectorAll("button").forEach(x=>x.setAttribute("aria-pressed","false"));
+      b.setAttribute("aria-pressed","true");
+    });
+    host.appendChild(b);
+  }
+}
+
+/* ---- navigazione ---- */
+document.getElementById("navStart").addEventListener("click", ()=>{ S.view=0; S.selected=null;S.legal=[]; render(); showPlyEval(); });
+document.getElementById("navPrev").addEventListener("click", ()=>{ if(S.view>0)S.view--; S.selected=null;S.legal=[]; render(); showPlyEval(); });
+document.getElementById("navNext").addEventListener("click", ()=>{ if(S.view<S.game.history().length)S.view++; S.selected=null;S.legal=[]; render(); showPlyEval(); });
+document.getElementById("navEnd").addEventListener("click", ()=>{ S.view=S.game.history().length; S.selected=null;S.legal=[]; render(); showPlyEval(); });
+document.addEventListener("keydown", e=>{
+  if(e.target.tagName === "TEXTAREA" || e.target.tagName === "INPUT") return;
+  if(e.key === "ArrowLeft"){ if(S.view>0){S.view--; render(); showPlyEval();} }
+  if(e.key === "ArrowRight"){ if(S.view<S.game.history().length){S.view++; render(); showPlyEval();} }
+});
+
+/* ---- gioca ---- */
+document.getElementById("btnNewGame").addEventListener("click", ()=>{
+  S.game = new Chess(); S.startFen = null; S.view = 0; S.evals=[]; S.tags=[]; S.drill=null;
+  S.flipped = S.playerColor === "b";
+  setTab("play"); render(); setEval(null);
+  setStatus(S.playerColor === "w" ? "Tocca a te." : "Il motore apre.");
+  if(S.playerColor === "b") setTimeout(engineMove, 250);
+});
+document.getElementById("btnFromBoard").addEventListener("click", ()=>{
+  const fen = viewFen();
+  S.startFen = fen; S.game = new Chess(fen); S.view = 0; S.evals=[]; S.tags=[]; S.drill=null;
+  setTab("play"); render();
+  setStatus("Partita dalla posizione corrente.");
+  if(S.game.turn() !== S.playerColor) setTimeout(engineMove, 250);
+});
+document.getElementById("btnUndo").addEventListener("click", ()=>{
+  if(S.thinking) return;
+  S.game.undo(); if(S.game.turn() !== S.playerColor) S.game.undo();
+  S.view = S.game.history().length; S.evals.length = S.view; S.tags.length = Math.max(0,S.view);
+  S.selected=null; S.legal=[]; render(); setStatus("Mossa annullata."); updateGauge();
+});
+document.getElementById("btnHint").addEventListener("click", async ()=>{
+  if(S.thinking) return;
+  S.thinking = true; setStatus("Cerco la mossa migliore…"); await frame();
+  const r = await analyse(S.game.fen(), Math.max(800, +PREFS.level));
+  S.thinking = false;
+  if(!r || !r.uci){ setStatus("Nessun suggerimento."); return; }
+  const gg = new Chess(S.game.fen());
+  const m = gg.move({from:r.uci.slice(0,2), to:r.uci.slice(2,4), promotion:r.uci.length>4?r.uci[4]:undefined});
+  S.selected = r.uci.slice(0,2); S.legal = [r.uci.slice(2,4)];
+  render(); setEval(r);
+  setStatus("Suggerimento: " + (m ? m.san : r.uci) + (r.pv && r.pv.length>1 ? "  (" + r.pv.slice(0,4).join(" ") + ")" : ""), true);
+});
+document.querySelectorAll("[data-drill]").forEach(b=>{
+  b.addEventListener("click", ()=>startDrill(b.dataset.drill));
+});
+
+/* ---- analizza ---- */
+document.getElementById("btnLoadPgn").addEventListener("click", ()=>{
+  if(loadPgn(document.getElementById("pgnIn").value)) setTab("analyse");
+});
+document.getElementById("btnPastePgn").addEventListener("click", async ()=>{
+  try{
+    const t = await navigator.clipboard.readText();
+    document.getElementById("pgnIn").value = t;
+    if(loadPgn(t)) setTab("analyse");
+  }catch(e){
+    setStatus("Il browser non mi dà accesso agli appunti. Incolla a mano nel riquadro.", true);
+  }
+});
+/* ---- import diretto da chess.com (richiede hosting proprio) ---- */
+const CC = { games: [] };
+async function ccFetch(){
+  const user = document.getElementById("ccUser").value.trim().toLowerCase();
+  const note = document.getElementById("ccNote"), list = document.getElementById("ccList");
+  const btn = document.getElementById("btnCcFetch");
+  if(!user){ note.textContent = "Scrivi il tuo nome utente di chess.com."; return; }
+  btn.disabled = true; note.textContent = "Scarico…";
+  try{
+    const ar = await fetch("https://api.chess.com/pub/player/"+encodeURIComponent(user)+"/games/archives");
+    if(ar.status === 404) throw new Error("Utente «"+user+"» non trovato su chess.com.");
+    if(!ar.ok) throw new Error("chess.com ha risposto "+ar.status+".");
+    const arch = (await ar.json()).archives || [];
+    if(!arch.length) throw new Error("Nessuna partita pubblica per «"+user+"».");
+    let games = [];
+    for(let i = arch.length-1; i >= 0 && games.length < 40; i--){
+      const r = await fetch(arch[i]);
+      if(!r.ok) continue;
+      const batch = ((await r.json()).games || []).filter(x=>x.pgn).reverse();
+      games = games.concat(batch).slice(0, 40);
+    }
+    if(!games.length) throw new Error("Nessuna partita trovata.");
+    CC.games = games;
+    PREFS.ccUser = user; savePrefs();
+    renderCcList(user);
+    note.textContent = games.length + " partite. Toccane una per caricarla.";
+  }catch(e){
+    list.classList.add("hidden");
+    const off = /Failed to fetch|NetworkError|Load failed|Content Security/i.test(e.message);
+    note.textContent = off
+      ? "Questa copia è ospitata su claude.ai, che blocca le chiamate esterne. Scarica il file HTML e aprilo da un tuo hosting: qui l'import diretto funziona. Intanto usa «incolla PGN» qui sotto."
+      : e.message;
+  }finally{ btn.disabled = false; }
+}
+function renderCcList(user){
+  const list = document.getElementById("ccList");
+  let out = "";
+  CC.games.forEach((g,i)=>{
+    const meW = (g.white.username||"").toLowerCase() === user;
+    const opp = meW ? g.black : g.white;
+    const me  = meW ? g.white : g.black;
+    const res = me.result === "win" ? "V" : (["agreed","repetition","stalemate","insufficient","50move","timevsinsufficient"].indexOf(me.result)>=0 ? "=" : "S");
+    const col = res === "V" ? "var(--good)" : res === "=" ? "var(--dim)" : "var(--blun)";
+    const d = new Date((g.end_time||0)*1000);
+    const dd = d.toLocaleDateString("it-IT",{day:"2-digit",month:"2-digit",year:"2-digit"});
+    out += '<button class="mv" data-i="'+i+'" style="width:100%">'
+         + '<span style="color:'+col+';font-weight:600;width:11px">'+res+'</span>'
+         + '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'
+         + (opp.username||"?") + ' <span style="opacity:.55">'+(opp.rating||"")+'</span></span>'
+         + '<span class="loss">'+(g.time_class||"")+' · '+dd+'</span></button>';
+  });
+  list.innerHTML = out;
+  list.classList.remove("hidden");
+  list.querySelectorAll(".mv").forEach(b=>b.addEventListener("click", ()=>{
+    const g = CC.games[+b.dataset.i];
+    document.getElementById("pgnIn").value = g.pgn || "";
+    if(loadPgn(g.pgn || "")){
+      const meW = (g.white.username||"").toLowerCase() === (PREFS.ccUser||"");
+      S.flipped = !meW; S.view = 0; render();
+      window.scrollTo({top:0, behavior:"smooth"});
+    }
+  }));
+}
+document.getElementById("btnCcFetch").addEventListener("click", ccFetch);
+document.getElementById("ccUser").addEventListener("keydown", e=>{ if(e.key==="Enter") ccFetch(); });
+
+document.getElementById("btnAnalyse").addEventListener("click", analyseGame);
+document.getElementById("btnStopAnalyse").addEventListener("click", ()=>{ S.stopFlag = true; });
+
+/* ---- posizione ---- */
+document.getElementById("btnClear").addEventListener("click", ()=>{ S.editChess.clear(); render(); });
+document.getElementById("btnInitial").addEventListener("click", ()=>{ S.editChess = new Chess(); S.editTurn="w"; segSet("segTurn","w"); render(); });
+document.getElementById("btnApplySetup").addEventListener("click", applySetup);
+document.getElementById("btnFenLoad").addEventListener("click", ()=>{
+  const f = document.getElementById("fenIo").value.trim();
+  const v = new Chess().validate_fen(f);
+  if(!v.valid){ setStatus("FEN non valido: " + v.error, true); return; }
+  S.editChess = new Chess(f); S.editTurn = S.editChess.turn(); segSet("segTurn", S.editTurn);
+  render(); setStatus("FEN caricato nell'editor.");
+});
+document.getElementById("btnFenCopy").addEventListener("click", async ()=>{
+  const f = S.editing ? editFenWithTurn() : viewFen();
+  try{ await navigator.clipboard.writeText(f); setStatus("FEN copiato."); }
+  catch(e){ document.getElementById("fenIo").select(); setStatus("Copia manualmente dal campo."); }
+});
+
+/* ============================================================
+   14. AVVIO
+   ============================================================ */
+buildPalettes();
+buildPresets();
+buildSwatches();
+segSet("segSide", PREFS.side);
+segSet("segTheme", PREFS.theme);
+segSet("segCoord", PREFS.coord ? "1" : "0");
+document.getElementById("selLevel").value = String(PREFS.level);
+document.getElementById("selQual").value  = String(PREFS.qual);
+if(PREFS.ccUser) document.getElementById("ccUser").value = PREFS.ccUser;
+S.playerColor = PREFS.side;
+S.flipped = PREFS.side === "b";
+render();
+setEval(null);
+setStatus("Tocca un pezzo per muoverlo.");
+</script>
+</body>
+</html>
