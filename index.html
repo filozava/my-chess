@@ -832,7 +832,14 @@ function renderMoveList(){
   }
   el.innerHTML=out;
   el.querySelectorAll(".mv").forEach(b=>b.addEventListener("click",()=>{goPly(+b.dataset.ply);renderGraph();}));
-  const cur=el.querySelector('[aria-current="true"]'); if(cur) cur.scrollIntoView({block:"nearest"});
+  const cur=el.querySelector('[aria-current="true"]'); keepInView(el,cur);
+}
+/* scorre SOLO il contenitore: scrollIntoView su Safari trascina anche la pagina */
+function keepInView(box,el){
+  if(!el) return;
+  const b=box.getBoundingClientRect(), e=el.getBoundingClientRect();
+  if(e.top<b.top) box.scrollTop+=e.top-b.top-6;
+  else if(e.bottom>b.bottom) box.scrollTop+=e.bottom-b.bottom+6;
 }
 function describePly(){
   const t=S.tags[S.view-1];
